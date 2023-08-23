@@ -41,7 +41,7 @@ output "neighbourhood_ipv6_cidr_block" {
 resource "aws_internet_gateway" "kadikoy" {
   vpc_id = aws_vpc.kadikoy.id
   tags = {
-    "Name" = "${var.Project}"
+    "Name" = "${var.Project}-igw"
   }
 
   depends_on = [aws_vpc.kadikoy]
@@ -62,7 +62,7 @@ resource "aws_default_route_table" "kadikoy" {
   }
 
   tags = {
-    Name = format("%s-%s-%s", var.Project,"ds","default")
+    Name = format("%s-%s-%s", var.Project, "ds", "default")
   }
 
   depends_on = [aws_vpc.kadikoy]
@@ -73,15 +73,16 @@ resource "aws_egress_only_internet_gateway" "kadikoy" {
   vpc_id = aws_vpc.kadikoy.id
 
   tags = {
-    Name = format("%s", var.Project)
+    Name = format("%s-%s", var.Project, "eigw")
   }
   depends_on = [aws_vpc.kadikoy]
 }
 
-resource "aws_route_table" "kadikoy_ipv6_egress_only" {
+resource "aws_route_table" "kadikoy_egress_only" {
   route {
     ipv6_cidr_block = "::/0"
-    gateway_id      = aws_egress_only_internet_gateway.kadikoy.id
+    #gateway_id      = aws_egress_only_internet_gateway.kadikoy.id
+    egress_only_gateway_id = aws_egress_only_internet_gateway.kadikoy.id
   }
   vpc_id = aws_vpc.kadikoy.id
   tags = {
@@ -90,7 +91,7 @@ resource "aws_route_table" "kadikoy_ipv6_egress_only" {
   depends_on = [aws_vpc.kadikoy]
 }
 
-resource "aws_route_table" "kadikoy_ipv6_private" {
+resource "aws_route_table" "kadikoy_private" {
 
   vpc_id = aws_vpc.kadikoy.id
   tags = {
@@ -109,7 +110,7 @@ resource "aws_subnet" "kadikoy_ipv6_public" {
   map_public_ip_on_launch                        = false
   assign_ipv6_address_on_creation                = true
   enable_resource_name_dns_aaaa_record_on_launch = true
-  enable_dns64                                   = false
+  enable_dns64                                   = true
   tags = {
     Name           = format("%s-%s-%s-%s", var.Project, "v6", "public", count.index + 1)
     IPv4           = "false"
@@ -128,7 +129,7 @@ resource "aws_subnet" "kadikoy_ipv6_egress_only" {
   map_public_ip_on_launch                        = false
   assign_ipv6_address_on_creation                = true
   enable_resource_name_dns_aaaa_record_on_launch = true
-  enable_dns64                                   = false
+  enable_dns64                                   = true
   tags = {
     Name           = format("%s-%s-%s-%s", var.Project, "v6", "egress", count.index + 1)
     IPv4           = "false"
@@ -141,7 +142,7 @@ resource "aws_subnet" "kadikoy_ipv6_egress_only" {
 resource "aws_route_table_association" "kadikoy_ipv6_egress_only_rtba" {
   count          = length(data.aws_availability_zones.available.names)
   subnet_id      = aws_subnet.kadikoy_ipv6_egress_only[count.index].id
-  route_table_id = aws_route_table.kadikoy_ipv6_egress_only.id
+  route_table_id = aws_route_table.kadikoy_egress_only.id
 }
 
 resource "aws_subnet" "kadikoy_ipv6_private" {
@@ -166,5 +167,164 @@ resource "aws_subnet" "kadikoy_ipv6_private" {
 resource "aws_route_table_association" "kadikoy_ipv6_private_rtba" {
   count          = length(data.aws_availability_zones.available.names)
   subnet_id      = aws_subnet.kadikoy_ipv6_private[count.index].id
-  route_table_id = aws_route_table.kadikoy_ipv6_private.id
+  route_table_id = aws_route_table.kadikoy_private.id
+}
+
+
+
+// Dual Stack
+output "name" {
+  value = cidrsubnet(aws_vpc.kadikoy.cidr_block, 8, (10 * length(data.aws_availability_zones.available.names)) + 2)
+
+}
+resource "aws_subnet" "kadikoy_ds_public" {
+  count                                          = length(data.aws_availability_zones.available.names)
+  vpc_id                                         = aws_vpc.kadikoy.id
+  availability_zone                              = data.aws_availability_zones.available.names[count.index]
+  cidr_block                                     = cidrsubnet(aws_vpc.kadikoy.cidr_block, 8, (4 * length(data.aws_availability_zones.available.names)) + count.index)
+  ipv6_cidr_block                                = cidrsubnet(aws_vpc.kadikoy.ipv6_cidr_block, 8, (4 * length(data.aws_availability_zones.available.names)) + count.index)
+  ipv6_native                                    = false
+  map_public_ip_on_launch                        = true
+  assign_ipv6_address_on_creation                = true
+  enable_resource_name_dns_aaaa_record_on_launch = true
+  enable_dns64                                   = false
+  tags = {
+    Name           = format("%s-%s-%s-%s", var.Project, "ds", "public", count.index + 1)
+    IPv4           = "false"
+    IPv6           = "true"
+    IPv6EgressType = "direct"
+    IPv4EgressType = "direct"
+  }
+}
+
+
+resource "aws_subnet" "kadikoy_ds_private" {
+  count                                          = length(data.aws_availability_zones.available.names)
+  vpc_id                                         = aws_vpc.kadikoy.id
+  availability_zone                              = data.aws_availability_zones.available.names[count.index]
+  cidr_block                                     = cidrsubnet(aws_vpc.kadikoy.cidr_block, 8, (5 * length(data.aws_availability_zones.available.names)) + count.index)
+  ipv6_cidr_block                                = cidrsubnet(aws_vpc.kadikoy.ipv6_cidr_block, 8, (5 * length(data.aws_availability_zones.available.names)) + count.index)
+  ipv6_native                                    = false
+  map_public_ip_on_launch                        = false
+  assign_ipv6_address_on_creation                = true
+  enable_resource_name_dns_aaaa_record_on_launch = true
+  enable_dns64                                   = false
+
+  tags = {
+    Name       = format("%s-%s-%s-%s", var.Project, "ds", "private", count.index + 1)
+    IPv4       = "true"
+    IPv6       = "true"
+    IPv6Egress = "block"
+    IPv4Egress = "block"
+    Type       = "private"
+  }
+}
+resource "aws_route_table_association" "kadikoy_ds_private_rtba" {
+  count          = length(data.aws_availability_zones.available.names)
+  subnet_id      = aws_subnet.kadikoy_ds_private[count.index].id
+  route_table_id = aws_route_table.kadikoy_private.id
+}
+
+data "aws_route_tables" "kadikoy-route-tables" {
+  vpc_id = aws_vpc.kadikoy.id
+}
+
+
+// VPC endpoints
+
+// Gateway based
+resource "aws_vpc_endpoint" "kadikoy-vpce-s3" {
+  vpc_id            = aws_vpc.kadikoy.id
+  service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"
+  vpc_endpoint_type = "Gateway"
+  auto_accept       = true
+  route_table_ids   = data.aws_route_tables.kadikoy-route-tables.ids
+  //private_dns_enabled = true
+
+  tags = {
+    Name = "kadikoy-s3"
+  }
+}
+
+
+resource "aws_security_group" "kadikoy-internal-only" {
+  name        = "allow_internal"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.kadikoy.id
+
+  ingress {
+    description      = "from VPC"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = [aws_vpc.kadikoy.cidr_block]
+    ipv6_cidr_blocks = [aws_vpc.kadikoy.ipv6_cidr_block]
+  }
+
+  egress {
+    description = "to VPC"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = [aws_vpc.kadikoy.cidr_block]
+    ipv6_cidr_blocks = [aws_vpc.kadikoy.ipv6_cidr_block]
+  }
+
+  tags = {
+    Name = "kadikoy-sg-internal-only"
+  }
+}
+
+
+data "aws_subnets" "kadikoy-subnets" {
+  filter {
+    name   = "vpc-id"
+    values = [aws_vpc.kadikoy.id]
+  }
+
+  tags = {
+    Type = "Private"
+  }
+
+}
+
+// Interface based
+resource "aws_vpc_endpoint" "kadikoy-vpce-ec2" {
+  vpc_id            = aws_vpc.kadikoy.id
+  service_name      = "com.amazonaws.${data.aws_region.current.name}.ec2"
+  vpc_endpoint_type = "Interface"
+
+  subnet_ids          = data.aws_subnets.kadikoy-subnets.ids
+  private_dns_enabled = true
+
+  tags = {
+    Name = "kadikoy-ec2"
+  }
+}
+
+
+resource "aws_vpc_endpoint" "kadikoy-ecr-api-vpce" {
+  vpc_id            = aws_vpc.kadikoy.id
+  service_name      = "com.amazonaws.${data.aws_region.current.name}.ecr.api"
+  vpc_endpoint_type = "Interface"
+
+
+  subnet_ids          = data.aws_subnets.kadikoy-subnets.ids
+  private_dns_enabled = true
+  tags = {
+    Name = "kadikoy-ecr-api"
+  }
+}
+resource "aws_vpc_endpoint" "kadikoy-ecr-dkr-vpce" {
+  vpc_id             = aws_vpc.kadikoy.id
+  service_name       = "com.amazonaws.${data.aws_region.current.name}.ecr.dkr"
+  vpc_endpoint_type  = "Interface"
+  security_group_ids = [aws_security_group.kadikoy-internal-only.id]
+
+  subnet_ids          = data.aws_subnets.kadikoy-subnets.ids
+  private_dns_enabled = true
+
+  tags = {
+    Name = "kadikoy-ecr-dkr"
+  }
 }
