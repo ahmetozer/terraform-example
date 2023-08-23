@@ -249,7 +249,7 @@ resource "aws_vpc_endpoint" "kadikoy-vpce-s3" {
 
 resource "aws_security_group" "kadikoy-internal-only" {
   name        = "allow_internal"
-  description = "Allow TLS inbound traffic"
+  description = "Allow VPC only internal traffic"
   vpc_id      = aws_vpc.kadikoy.id
 
   ingress {
@@ -262,7 +262,7 @@ resource "aws_security_group" "kadikoy-internal-only" {
   }
 
   egress {
-    description = "to VPC"
+    description      = "to VPC"
     from_port        = 0
     to_port          = 0
     protocol         = "-1"
@@ -283,7 +283,7 @@ data "aws_subnets" "kadikoy-subnets" {
   }
 
   tags = {
-    Type = "Private"
+    Type = "private"
   }
 
 }
@@ -296,21 +296,29 @@ resource "aws_vpc_endpoint" "kadikoy-vpce-ec2" {
 
   subnet_ids          = data.aws_subnets.kadikoy-subnets.ids
   private_dns_enabled = true
+  security_group_ids  = [aws_security_group.kadikoy-internal-only.id]
+
 
   tags = {
     Name = "kadikoy-ec2"
   }
 }
+# resource "aws_vpc_endpoint_subnet_association" "kadikoy-vpce-ec2" {
+#   for_each = toset(data.aws_subnets.ozer-subnets.ids)
 
+#   vpc_endpoint_id = aws_vpc_endpoint.ozer-ec2.id
+#   subnet_id       = each.value
+# }
 
 resource "aws_vpc_endpoint" "kadikoy-ecr-api-vpce" {
   vpc_id            = aws_vpc.kadikoy.id
   service_name      = "com.amazonaws.${data.aws_region.current.name}.ecr.api"
   vpc_endpoint_type = "Interface"
 
-
   subnet_ids          = data.aws_subnets.kadikoy-subnets.ids
   private_dns_enabled = true
+
+  security_group_ids = [aws_security_group.kadikoy-internal-only.id]
   tags = {
     Name = "kadikoy-ecr-api"
   }
@@ -326,5 +334,40 @@ resource "aws_vpc_endpoint" "kadikoy-ecr-dkr-vpce" {
 
   tags = {
     Name = "kadikoy-ecr-dkr"
+  }
+}
+
+resource "aws_ec2_instance_connect_endpoint" "kadikoy" {
+  subnet_id          = aws_subnet.kadikoy_ds_private[0].id
+  security_group_ids = [aws_security_group.kadikoy-internal-only.id]
+
+  tags = {
+    Name = "kadikoy-ec2-connect"
+  }
+}
+
+resource "aws_default_security_group" "kadikoy_default_sg" {
+  vpc_id = aws_vpc.kadikoy.id
+
+  ingress {
+    description      = "from VPC"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = [aws_vpc.kadikoy.cidr_block]
+    ipv6_cidr_blocks = [aws_vpc.kadikoy.ipv6_cidr_block]
+  }
+
+  egress {
+    description      = "to VPC"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = [aws_vpc.kadikoy.cidr_block]
+    ipv6_cidr_blocks = [aws_vpc.kadikoy.ipv6_cidr_block]
+  }
+
+  tags = {
+    Name = "kadikoy-sg-default"
   }
 }

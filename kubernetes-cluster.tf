@@ -33,14 +33,16 @@ resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKSVPCResourceControlle
 resource "aws_eks_cluster" "kadikoy" {
   name     = "kadikoy"
   role_arn = aws_iam_role.kadikoy_eks.arn
-  version = "1.27"
+  version  = "1.27"
 
   vpc_config {
+    endpoint_private_access = true
+    endpoint_public_access  = true
     //subnet_ids = [aws_subnet.kadikoy_ipv6_public[*].id, aws_subnet.kadikoy_ipv6_egress_only.*.id, aws_subnet.kadikoy_ipv6_private.*.id]
-    subnet_ids =  concat(aws_subnet.kadikoy_ds_public.*.id, aws_subnet.kadikoy_ds_private.*.id)
+    subnet_ids = concat(aws_subnet.kadikoy_ds_public.*.id, aws_subnet.kadikoy_ds_private.*.id)
   }
 
-  
+
   # Ensure that IAM Role permissions are created before and deleted after EKS Cluster handling.
   # Otherwise, EKS will not be able to properly delete EKS managed EC2 infrastructure such as Security Groups.
   depends_on = [
@@ -79,7 +81,41 @@ resource "aws_iam_role" "eks_kadikoy_node_group" {
     }]
     Version = "2012-10-17"
   })
+
 }
+
+
+resource "aws_iam_policy" "KadikoyAmazonEKS_CNI_IPv6_Policy" {
+  name = "Kadikoy_AmazonEKS_CNI_IPv6_Policy"
+
+  policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Effect" : "Allow",
+        "Action" : [
+          "ec2:AssignIpv6Addresses",
+          "ec2:DescribeInstances",
+          "ec2:DescribeTags",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeInstanceTypes"
+        ],
+        "Resource" : "*"
+      },
+      {
+        "Effect" : "Allow",
+        "Action" : [
+          "ec2:CreateTags"
+        ],
+        "Resource" : [
+          "arn:aws:ec2:*:*:network-interface/*"
+        ]
+      }
+    ]
+  })
+
+}
+
 
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKSWorkerNodePolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
@@ -91,8 +127,104 @@ resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKS_CNI_Policy" {
   role       = aws_iam_role.eks_kadikoy_node_group.name
 }
 
+resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKS_CNI_IPv6_Policy" {
+  policy_arn = aws_iam_policy.KadikoyAmazonEKS_CNI_IPv6_Policy.arn
+  role       = aws_iam_role.eks_kadikoy_node_group.name
+  depends_on = [aws_iam_policy.KadikoyAmazonEKS_CNI_IPv6_Policy]
+}
+
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEC2ContainerRegistryReadOnly" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
   role       = aws_iam_role.eks_kadikoy_node_group.name
 }
 
+
+resource "aws_eks_node_group" "kadikoy_eks_public" {
+  cluster_name    = aws_eks_cluster.kadikoy.name
+  node_group_name = "public"
+  node_role_arn   = aws_iam_role.eks_kadikoy_node_group.arn
+  subnet_ids      = aws_subnet.kadikoy_ds_public[*].id
+  capacity_type   = "SPOT"
+  ami_type        = "BOTTLEROCKET_ARM_64"
+
+  scaling_config {
+    desired_size = 1
+    max_size     = 2
+    min_size     = 1
+  }
+  instance_types = ["t4g.nano", "t4g.micro", "t4g.small", "t4g.medium", "t4g.large"]
+
+
+  update_config {
+    max_unavailable = 1
+  }
+
+  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
+  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+  depends_on = [
+    aws_eks_cluster.kadikoy
+  ]
+}
+
+resource "aws_eks_node_group" "kadikoy_eks_private" {
+  cluster_name    = aws_eks_cluster.kadikoy.name
+  node_group_name = "private"
+  node_role_arn   = aws_iam_role.eks_kadikoy_node_group.arn
+  subnet_ids      = aws_subnet.kadikoy_ds_private[*].id
+  capacity_type   = "SPOT"
+  ami_type        = "BOTTLEROCKET_ARM_64"
+
+  scaling_config {
+    desired_size = 1
+    max_size     = 3
+    min_size     = 1
+  }
+  instance_types = ["t4g.nano", "t4g.micro", "t4g.small", "t4g.medium", "t4g.large"]
+
+
+  update_config {
+    max_unavailable = 1
+  }
+
+
+  depends_on = [
+    aws_eks_cluster.kadikoy
+  ]
+}
+
+// Container cache 
+resource "aws_ecr_repository" "kadikoy-cache" {
+  name = "kadikoy-cache"
+
+}
+
+resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
+  repository = aws_ecr_repository.kadikoy-cache.name
+
+  policy = <<EOF
+{
+    "rules": [
+        {
+            "rulePriority": 1,
+            "description": "Expire images older than 7 days",
+            "selection": {
+                "tagStatus": "untagged",
+                "countType": "sinceImagePushed",
+                "countUnit": "days",
+                "countNumber": 7
+            },
+            "action": {
+                "type": "expire"
+            }
+        }
+    ]
+}
+EOF
+}
+resource "aws_ecr_pull_through_cache_rule" "kadikoy-cache" {
+  ecr_repository_prefix = aws_ecr_repository.kadikoy-cache.name
+  upstream_registry_url = "public.ecr.aws"
+}
+
+// Example alpine image
+// ${account-number}.dkr.ecr.${region}.amazonaws.com/kadikoy-cache/docker/library/alpine:latest
