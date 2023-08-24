@@ -221,10 +221,45 @@ resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
 }
 EOF
 }
+
+// Private nodes not able to get images from public registry
 resource "aws_ecr_pull_through_cache_rule" "kadikoy-cache" {
   ecr_repository_prefix = aws_ecr_repository.kadikoy-cache.name
   upstream_registry_url = "public.ecr.aws"
 }
 
-// Example alpine image
-// ${account-number}.dkr.ecr.${region}.amazonaws.com/kadikoy-cache/docker/library/alpine:latest
+# Default iam role `arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly` does not support pull through cache
+
+resource "aws_iam_role_policy" "kadikoy-ECRPullThroughCache" {
+  name = "kadikoy-ECRPullThroughCache"
+  role = aws_iam_role.eks_kadikoy_node_group.id
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ecr:CreateRepository",
+          "ecr:BatchImportUpstreamImage"
+        ]
+        Effect = "Allow"
+        Resource : "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${aws_ecr_repository.kadikoy-cache.name}/*"
+      },
+    ]
+  })
+}
+
+
+// Example alb controller image
+// {data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/kadikoy-cache/eks/aws-load-balancer-controller
+
+
+
+resource "aws_eks_addon" "kadikoy_vpc_cni" {
+  cluster_name  = aws_eks_cluster.kadikoy.name
+  addon_version = "v1.13.4-eksbuild.1"
+  addon_name    = "vpc-cni"
+}
+
