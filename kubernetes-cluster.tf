@@ -48,6 +48,13 @@ resource "aws_eks_cluster" "kadikoy" {
   depends_on = [
     aws_iam_role_policy_attachment.kadikoy-AmazonEKSClusterPolicy,
     aws_iam_role_policy_attachment.kadikoy-AmazonEKSVPCResourceController,
+    aws_iam_role_policy.kadikoy-ECRPullThroughCache,
+    aws_vpc_endpoint.kadikoy-ec2,
+    aws_vpc_endpoint.kadikoy-ecr-api,
+    aws_vpc_endpoint.kadikoy-ecr-dkr,
+    aws_ec2_instance_connect_endpoint.kadikoy,
+    aws_ecr_pull_through_cache_rule.kadikoy-cache,
+    
   ]
   kubernetes_network_config {
     ip_family = "ipv6"
@@ -181,21 +188,19 @@ resource "aws_eks_node_group" "kadikoy_eks_private" {
   }
   instance_types = ["t4g.nano", "t4g.micro", "t4g.small", "t4g.medium", "t4g.large"]
 
-
   update_config {
     max_unavailable = 1
   }
 
 
   depends_on = [
-    aws_eks_cluster.kadikoy
+    aws_eks_cluster.kadikoy,
   ]
 }
 
 // Container cache 
 resource "aws_ecr_repository" "kadikoy-cache" {
   name = "kadikoy-cache"
-
 }
 
 resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
@@ -220,15 +225,8 @@ resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
     ]
 }
 EOF
+  depends_on = [ aws_ecr_repository.kadikoy-cache ]
 }
-
-// Private nodes not able to get images from public registry
-resource "aws_ecr_pull_through_cache_rule" "kadikoy-cache" {
-  ecr_repository_prefix = aws_ecr_repository.kadikoy-cache.name
-  upstream_registry_url = "public.ecr.aws"
-}
-
-# Default iam role `arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly` does not support pull through cache
 
 resource "aws_iam_role_policy" "kadikoy-ECRPullThroughCache" {
   name = "kadikoy-ECRPullThroughCache"
@@ -251,6 +249,15 @@ resource "aws_iam_role_policy" "kadikoy-ECRPullThroughCache" {
   })
 }
 
+// Private nodes not able to get images from public registry
+resource "aws_ecr_pull_through_cache_rule" "kadikoy-cache" {
+  ecr_repository_prefix = aws_ecr_repository.kadikoy-cache.name
+  upstream_registry_url = "public.ecr.aws"
+  depends_on = [ aws_ecr_repository.kadikoy-cache ]
+}
+
+# Default iam role `arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly` does not support pull through cache
+
 
 // Example alb controller image
 // {data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/kadikoy-cache/eks/aws-load-balancer-controller
@@ -261,5 +268,29 @@ resource "aws_eks_addon" "kadikoy_vpc_cni" {
   cluster_name  = aws_eks_cluster.kadikoy.name
   addon_version = "v1.13.4-eksbuild.1"
   addon_name    = "vpc-cni"
+
+  resolve_conflicts_on_create = "OVERWRITE"
 }
 
+provider "kubernetes" {
+  host                   = aws_eks_cluster.kadikoy.endpoint
+  cluster_ca_certificate = base64decode(aws_eks_cluster.kadikoy.certificate_authority[0].data)
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.kadikoy.name]
+    command     = "aws"
+  }
+
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = aws_eks_cluster.kadikoy.endpoint
+    cluster_ca_certificate = base64decode(aws_eks_cluster.kadikoy.certificate_authority[0].data)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.kadikoy.name]
+      command     = "aws"
+    }
+  }
+}

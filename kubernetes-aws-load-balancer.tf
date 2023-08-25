@@ -40,29 +40,7 @@ resource "aws_iam_role_policy_attachment" "kadikoy_aws_load_balancer_controller"
   ]
 }
 
-provider "kubernetes" {
-  host                   = aws_eks_cluster.kadikoy.endpoint
-  cluster_ca_certificate = base64decode(aws_eks_cluster.kadikoy.certificate_authority[0].data)
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.kadikoy.name]
-    command     = "aws"
-  }
 
-}
-
-provider "helm" {
-  kubernetes {
-    host                   = aws_eks_cluster.kadikoy.endpoint
-    cluster_ca_certificate = base64decode(aws_eks_cluster.kadikoy.certificate_authority[0].data)
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.kadikoy.name]
-      command     = "aws"
-    }
-
-  }
-}
 
 resource "kubernetes_service_account" "kadikoy-aws-load-balancer-controller" {
   metadata {
@@ -105,6 +83,7 @@ resource "helm_release" "kadikoy-aws-load-balancer-controller" {
   }
   depends_on = [ 
     kubernetes_service_account.kadikoy-aws-load-balancer-controller,
-    # aws_iam_role_policy.kadikoy-ECRPullThroughCache
+    aws_iam_role_policy.kadikoy-ECRPullThroughCache,
+    aws_eks_node_group.kadikoy_eks_private
   ]
 }
