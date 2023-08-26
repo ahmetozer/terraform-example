@@ -4,20 +4,20 @@
   - IPv6
   - Internet Gateway for DualStack (IPv4 and IPv6) and Egress only gateway for IPv6
   - Subnet
-        - IPv6 only Private, Public, Egress
-        - DualStack  Private, Public, Egress (EKS allocated here)
+    - IPv6 only Private, Public, Egress
+    - DualStack  Private, Public, Egress (EKS allocated here)
   - Route Table (Private, Public, Egress)
   - Security Group
-        - Default security group
-        - Internal Only
+    - Default security group
+    - Internal Only
   - Endpoint services  
   Enable aws services for private network and reduce ip-transit cost
-        - ec2
-        - ecr api
-        - ecr dkr
-        - sts (used by k8s service account)
-        - elasticloadbalancing
-        - instance_connect_endpoint (Commented due to creation time duration)
+    - ec2
+    - ecr api
+    - ecr dkr
+    - sts (used by k8s service account)
+    - elasticloadbalancing
+    - instance_connect_endpoint (Commented due to creation time duration)
 - EKS cluster (kubernetes-cluster.tf)
   - ARM architecture
   - IPv6
