@@ -1,16 +1,10 @@
-resource "kubernetes_namespace_v1" "suadiye" {
-  metadata {
-    name = "suadiye"
-  }
-}
-
 resource "kubernetes_deployment_v1" "whoami" {
   metadata {
     name = "whomi"
     labels = {
       app = "whoami"
     }
-    namespace = "suadiye"
+    namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
   }
 
   spec {
@@ -64,7 +58,7 @@ resource "kubernetes_deployment_v1" "whoami" {
 resource "kubernetes_service" "whoami" {
   metadata {
     name      = "whoami"
-    namespace = "suadiye"
+    namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
   }
   spec {
     selector = {
@@ -84,12 +78,12 @@ resource "kubernetes_ingress_v1" "suadiye" {
   # wait_for_load_balancer = true
   metadata {
     name      = "suadiye"
-    namespace = "suadiye"
+    namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
     annotations = {
       "alb.ingress.kubernetes.io/load-balancer-name" = "apps"
       "alb.ingress.kubernetes.io/group.name"         = "kadikoy-public"
       "alb.ingress.kubernetes.io/scheme"             = "internet-facing"
-      "alb.ingress.kubernetes.io/listen-ports"       = jsonencode([{ "HTTP" : 80 }])//jsonencode([{ "HTTP" : 80 }, { "HTTPS" : 443 }])
+      "alb.ingress.kubernetes.io/listen-ports"       = jsonencode([{ "HTTP" : 80 }]) //jsonencode([{ "HTTP" : 80 }, { "HTTPS" : 443 }])
       "alb.ingress.kubernetes.io/target-type"        = "ip"
       "alb.ingress.kubernetes.io/success-codes"      = "200-499"
       "alb.ingress.kubernetes.io/ip-address-type"    = "dualstack"
@@ -134,4 +128,9 @@ resource "kubernetes_ingress_v1" "suadiye" {
     #   secret_name = "tls-secret"
     # }
   }
+
+  depends_on = [
+    helm_release.kadikoy-aws-load-balancer-controller # To prevent
+  ]
+
 }

@@ -305,3 +305,15 @@ provider "helm" {
     }
   }
 }
+
+resource "kubernetes_namespace_v1" "suadiye" {
+  metadata {
+    name = "suadiye"
+  }
+}
+
+resource "kubernetes_namespace_v1" "cadde" {
+  metadata {
+    name = "cadde"
+  }
+}
