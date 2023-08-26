@@ -52,7 +52,6 @@ resource "aws_eks_cluster" "kadikoy" {
     aws_vpc_endpoint.kadikoy-ec2,
     aws_vpc_endpoint.kadikoy-ecr-api,
     aws_vpc_endpoint.kadikoy-ecr-dkr,
-    aws_ec2_instance_connect_endpoint.kadikoy,
     aws_ecr_pull_through_cache_rule.kadikoy-cache,
     
   ]
@@ -74,6 +73,18 @@ output "kubeconfig-certificate-authority-data" {
 }
 
 
+data "tls_certificate" "kadkikoy-eks-oidc" {
+  url = aws_eks_cluster.kadikoy.identity[0].oidc[0].issuer
+}
+resource "aws_iam_openid_connect_provider" "kadikoy-eks" {
+  url = aws_eks_cluster.kadikoy.identity[0].oidc[0].issuer
+
+  client_id_list = [
+    "sts.amazonaws.com",
+  ]
+
+  thumbprint_list = [data.tls_certificate.kadkikoy-eks-oidc.certificates.0.sha1_fingerprint]
+}
 
 resource "aws_iam_role" "eks_kadikoy_node_group" {
   name = "eks-node-group-kadikoy"

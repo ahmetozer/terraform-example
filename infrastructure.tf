@@ -255,7 +255,6 @@ data "aws_route_tables" "kadikoy-route-tables" {
 
 
 resource "aws_security_group" "kadikoy-internal-only" {
-  name        = "allow_internal"
   description = "Allow VPC only internal traffic"
   vpc_id      = aws_vpc.kadikoy.id
 
@@ -278,7 +277,7 @@ resource "aws_security_group" "kadikoy-internal-only" {
   }
 
   tags = {
-    Name = "kadikoy-sg-internal-only"
+    Name = "kadikoy-internal-only"
   }
 }
 
@@ -404,17 +403,56 @@ resource "aws_vpc_endpoint" "kadikoy-ecr-dkr" {
   }
 }
 
-resource "aws_ec2_instance_connect_endpoint" "kadikoy" {
-  subnet_id          = aws_subnet.kadikoy_vpce[0].id
+resource "aws_vpc_endpoint" "kadikoy-sts" {
+  vpc_id             = aws_vpc.kadikoy.id
+  service_name       = "com.amazonaws.${data.aws_region.current.name}.sts"
+  vpc_endpoint_type  = "Interface"
   security_group_ids = [aws_security_group.kadikoy-internal-only.id]
-  tags = {
-    Name = format("%s-%s-%s-%s", var.Project, "ec2", "connect", 1)
-  }
+
+  subnet_ids          = data.aws_subnets.kadikoy-vpce-subnets.ids
+  private_dns_enabled = true
+
   depends_on = [
+    data.aws_subnets.kadikoy-vpce-subnets,
     aws_subnet.kadikoy_vpce,
     aws_security_group.kadikoy-internal-only
   ]
+  tags = {
+    Name = "kadikoy-sts"
+  }
 }
+
+resource "aws_vpc_endpoint" "kadikoy-elasticloadbalancing" {
+  vpc_id             = aws_vpc.kadikoy.id
+  service_name       = "com.amazonaws.${data.aws_region.current.name}.elasticloadbalancing"
+  vpc_endpoint_type  = "Interface"
+  security_group_ids = [aws_security_group.kadikoy-internal-only.id]
+
+  subnet_ids          = data.aws_subnets.kadikoy-vpce-subnets.ids
+  private_dns_enabled = true
+
+  depends_on = [
+    data.aws_subnets.kadikoy-vpce-subnets,
+    aws_subnet.kadikoy_vpce,
+    aws_security_group.kadikoy-internal-only
+  ]
+  tags = {
+    Name = "kadikoy-elasticloadbalancing"
+  }
+}
+
+
+# resource "aws_ec2_instance_connect_endpoint" "kadikoy" {
+#   subnet_id          = aws_subnet.kadikoy_vpce[0].id
+#   security_group_ids = [aws_security_group.kadikoy-internal-only.id]
+#   tags = {
+#     Name = format("%s-%s-%s-%s", var.Project, "ec2", "connect", 1)
+#   }
+#   depends_on = [
+#     aws_subnet.kadikoy_vpce,
+#     aws_security_group.kadikoy-internal-only
+#   ]
+# }
 
 resource "aws_default_security_group" "kadikoy_default_sg" {
   vpc_id = aws_vpc.kadikoy.id
