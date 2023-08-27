@@ -18,6 +18,7 @@ resource "aws_iam_role" "kadikoy_eks" {
 }
 
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKSClusterPolicy" {
+  depends_on = [aws_iam_role.kadikoy_eks]
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
   role       = aws_iam_role.kadikoy_eks.name
 }
@@ -25,6 +26,7 @@ resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKSClusterPolicy" {
 # Optionally, enable Security Groups for Pods
 # Reference: https://docs.aws.amazon.com/eks/latest/userguide/security-groups-for-pods.html
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKSVPCResourceController" {
+  depends_on = [aws_iam_role.kadikoy_eks]
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
   role       = aws_iam_role.kadikoy_eks.name
 }
@@ -53,14 +55,13 @@ resource "aws_eks_cluster" "kadikoy" {
     aws_vpc_endpoint.kadikoy-ecr-api,
     aws_vpc_endpoint.kadikoy-ecr-dkr,
     aws_ecr_pull_through_cache_rule.kadikoy-cache,
-    
   ]
   kubernetes_network_config {
     ip_family = "ipv6"
   }
 
   tags = {
-    Name = "${var.Project}"
+    Name = "${var.Project.name}"
   }
 }
 
@@ -86,8 +87,11 @@ resource "aws_iam_openid_connect_provider" "kadikoy-eks" {
   thumbprint_list = [data.tls_certificate.kadkikoy-eks-oidc.certificates.0.sha1_fingerprint]
 }
 
-resource "aws_iam_role" "eks_kadikoy_node_group" {
-  name = "eks-node-group-kadikoy"
+resource "aws_iam_role" "eks-node-group" {
+  name = "${var.Project.name}-eks-node-groups"
+  lifecycle {
+    create_before_destroy = true
+  }
 
   assume_role_policy = jsonencode({
     Statement = [{
@@ -104,7 +108,7 @@ resource "aws_iam_role" "eks_kadikoy_node_group" {
 
 
 resource "aws_iam_policy" "KadikoyAmazonEKS_CNI_IPv6_Policy" {
-  name = "Kadikoy_AmazonEKS_CNI_IPv6_Policy"
+  name = "Kadikoy-AmazonEKS-CNI-IPv6-Policy"
 
   policy = jsonencode({
     "Version" : "2012-10-17",
@@ -137,30 +141,30 @@ resource "aws_iam_policy" "KadikoyAmazonEKS_CNI_IPv6_Policy" {
 
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKSWorkerNodePolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = aws_iam_role.eks_kadikoy_node_group.name
+  role       = aws_iam_role.eks-node-group.name
 }
 
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKS_CNI_Policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.eks_kadikoy_node_group.name
+  role       = aws_iam_role.eks-node-group.name
 }
 
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEKS_CNI_IPv6_Policy" {
   policy_arn = aws_iam_policy.KadikoyAmazonEKS_CNI_IPv6_Policy.arn
-  role       = aws_iam_role.eks_kadikoy_node_group.name
+  role       = aws_iam_role.eks-node-group.name
   depends_on = [aws_iam_policy.KadikoyAmazonEKS_CNI_IPv6_Policy]
 }
 
 resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEC2ContainerRegistryReadOnly" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = aws_iam_role.eks_kadikoy_node_group.name
+  role       = aws_iam_role.eks-node-group.name
 }
 
 
 resource "aws_eks_node_group" "kadikoy_eks_public" {
   cluster_name    = aws_eks_cluster.kadikoy.name
   node_group_name = "public"
-  node_role_arn   = aws_iam_role.eks_kadikoy_node_group.arn
+  node_role_arn   = aws_iam_role.eks-node-group.arn
   subnet_ids      = aws_subnet.kadikoy_ds_public[*].id
   capacity_type   = "SPOT"
   ami_type        = "BOTTLEROCKET_ARM_64"
@@ -187,7 +191,7 @@ resource "aws_eks_node_group" "kadikoy_eks_public" {
 resource "aws_eks_node_group" "kadikoy_eks_private" {
   cluster_name    = aws_eks_cluster.kadikoy.name
   node_group_name = "private"
-  node_role_arn   = aws_iam_role.eks_kadikoy_node_group.arn
+  node_role_arn   = aws_iam_role.eks-node-group.arn
   subnet_ids      = aws_subnet.kadikoy_ds_private[*].id
   capacity_type   = "SPOT"
   ami_type        = "BOTTLEROCKET_ARM_64"
@@ -212,12 +216,15 @@ resource "aws_eks_node_group" "kadikoy_eks_private" {
 // Container cache 
 resource "aws_ecr_repository" "kadikoy-cache" {
   name = "kadikoy-cache"
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
   repository = aws_ecr_repository.kadikoy-cache.name
 
-  policy = <<EOF
+  policy     = <<EOF
 {
     "rules": [
         {
@@ -236,12 +243,12 @@ resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
     ]
 }
 EOF
-  depends_on = [ aws_ecr_repository.kadikoy-cache ]
+  depends_on = [aws_ecr_repository.kadikoy-cache]
 }
 
 resource "aws_iam_role_policy" "kadikoy-ECRPullThroughCache" {
   name = "kadikoy-ECRPullThroughCache"
-  role = aws_iam_role.eks_kadikoy_node_group.id
+  role = aws_iam_role.eks-node-group.id
 
   # Terraform's "jsonencode" function converts a
   # Terraform expression result to valid JSON syntax.
@@ -264,7 +271,7 @@ resource "aws_iam_role_policy" "kadikoy-ECRPullThroughCache" {
 resource "aws_ecr_pull_through_cache_rule" "kadikoy-cache" {
   ecr_repository_prefix = aws_ecr_repository.kadikoy-cache.name
   upstream_registry_url = "public.ecr.aws"
-  depends_on = [ aws_ecr_repository.kadikoy-cache ]
+  depends_on            = [aws_ecr_repository.kadikoy-cache]
 }
 
 # Default iam role `arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly` does not support pull through cache

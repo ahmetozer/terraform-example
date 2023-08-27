@@ -192,7 +192,7 @@ resource "helm_release" "kadikoy-aws-load-balancer-controller" {
 
   set {
     name  = "enableShield"
-    value = "falde"
+    value = "false"
   }
 
 

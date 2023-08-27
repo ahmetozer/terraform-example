@@ -11,8 +11,12 @@ terraform {
 
 
 variable "Project" {
-  type    = string
-  default = "kadikoy"
+  type    = object({
+    name = string
+  })
+  default = {
+    name = "kadikoy"
+  }
 }
 provider "aws" {
   alias  = "eu-central-1"
@@ -21,7 +25,6 @@ provider "aws" {
 
 data "aws_region" "current" {}
 data "aws_availability_zones" "available" {}
-
 resource "aws_vpc" "kadikoy" {
   cidr_block                       = "10.20.0.0/16"
   enable_dns_support               = true
@@ -29,7 +32,7 @@ resource "aws_vpc" "kadikoy" {
   assign_generated_ipv6_cidr_block = true
 
   tags = {
-    Name = "${var.Project}"
+    Name = "${var.Project.name}"
   }
 }
 
@@ -37,7 +40,7 @@ resource "aws_vpc" "kadikoy" {
 resource "aws_internet_gateway" "kadikoy" {
   vpc_id = aws_vpc.kadikoy.id
   tags = {
-    "Name" = "${var.Project}-igw"
+    "Name" = "${var.Project.name}-igw"
   }
 
   depends_on = [aws_vpc.kadikoy]
@@ -47,7 +50,7 @@ resource "aws_egress_only_internet_gateway" "kadikoy" {
   vpc_id = aws_vpc.kadikoy.id
 
   tags = {
-    Name = format("%s-%s", var.Project, "eigw")
+    Name = format("%s-%s", var.Project.name, "eigw")
   }
   depends_on = [aws_vpc.kadikoy]
 }
@@ -68,7 +71,7 @@ resource "aws_default_route_table" "kadikoy" {
   }
 
   tags = {
-    Name = format("%s-%s-%s", var.Project, "ds", "default")
+    Name = format("%s-%s-%s", var.Project.name, "ds", "default")
   }
 
   depends_on = [aws_vpc.kadikoy]
@@ -84,7 +87,7 @@ resource "aws_route_table" "kadikoy_egress_only" {
   }
   vpc_id = aws_vpc.kadikoy.id
   tags = {
-    Name = format("%s-%s", var.Project, "egress_only")
+    Name = format("%s-%s", var.Project.name, "egress_only")
   }
   depends_on = [aws_vpc.kadikoy]
 }
@@ -92,7 +95,7 @@ resource "aws_route_table" "kadikoy_egress_only" {
 resource "aws_route_table" "kadikoy_private" {
   vpc_id = aws_vpc.kadikoy.id
   tags = {
-    Name = format("%s-%s", var.Project, "private")
+    Name = format("%s-%s", var.Project.name, "private")
   }
   depends_on = [aws_vpc.kadikoy]
 }
@@ -109,7 +112,7 @@ resource "aws_subnet" "kadikoy_ipv6_public" {
   enable_resource_name_dns_aaaa_record_on_launch = true
   enable_dns64                                   = true
   tags = {
-    Name           = format("%s-%s-%s-%s", var.Project, "v6", "public", count.index + 1)
+    Name           = format("%s-%s-%s-%s", var.Project.name, "v6", "public", count.index + 1)
     IPv4           = "false"
     IPv6           = "true"
     IPv6EgressType = "direct"
@@ -128,7 +131,7 @@ resource "aws_subnet" "kadikoy_ipv6_egress_only" {
   enable_resource_name_dns_aaaa_record_on_launch = true
   enable_dns64                                   = true
   tags = {
-    Name           = format("%s-%s-%s-%s", var.Project, "v6", "egress", count.index + 1)
+    Name           = format("%s-%s-%s-%s", var.Project.name, "v6", "egress", count.index + 1)
     IPv4           = "false"
     IPv6           = "true"
     IPv6EgressType = "direct"
@@ -154,7 +157,7 @@ resource "aws_subnet" "kadikoy_ipv6_private" {
   enable_dns64                                   = false
 
   tags = {
-    Name       = format("%s-%s-%s-%s", var.Project, "v6", "private", count.index + 1)
+    Name       = format("%s-%s-%s-%s", var.Project.name, "v6", "private", count.index + 1)
     IPv4       = "false"
     IPv6       = "true"
     IPv6Egress = "block"
@@ -182,11 +185,13 @@ resource "aws_subnet" "kadikoy_ds_public" {
   enable_resource_name_dns_aaaa_record_on_launch = true
   enable_dns64                                   = false
   tags = {
-    Name           = format("%s-%s-%s-%s", var.Project, "ds", "public", count.index + 1)
-    IPv4           = "false"
-    IPv6           = "true"
-    IPv6EgressType = "direct"
-    IPv4EgressType = "direct"
+    Name                     = format("%s-%s-%s-%s", var.Project.name, "ds", "public", count.index + 1)
+    IPv4                     = "false"
+    IPv6                     = "true"
+    IPv6EgressType           = "direct"
+    IPv4EgressType           = "direct"
+    "kubernetes.io/role/elb" = "1"
+
   }
 }
 
@@ -204,12 +209,14 @@ resource "aws_subnet" "kadikoy_ds_private" {
   enable_dns64                                   = false
 
   tags = {
-    Name       = format("%s-%s-%s-%s", var.Project, "ds", "private", count.index + 1)
-    IPv4       = "true"
-    IPv6       = "true"
-    IPv6Egress = "block"
-    IPv4Egress = "block"
-    Type       = "private"
+    Name                              = format("%s-%s-%s-%s", var.Project.name, "ds", "private", count.index + 1)
+    IPv4                              = "true"
+    IPv6                              = "true"
+    IPv6Egress                        = "block"
+    IPv4Egress                        = "block"
+    Type                              = "private"
+    "kubernetes.io/role/internal-elb" = "1"
+
   }
 }
 resource "aws_route_table_association" "kadikoy_ds_private_rtba" {
@@ -231,7 +238,7 @@ resource "aws_subnet" "kadikoy_ds_egress" {
   enable_dns64                                   = true
 
   tags = {
-    Name       = format("%s-%s-%s-%s", var.Project, "ds", "egress", count.index + 1)
+    Name       = format("%s-%s-%s-%s", var.Project.name, "ds", "egress", count.index + 1)
     IPv4       = "true"
     IPv6       = "true"
     IPv6Egress = "egress"
@@ -246,11 +253,11 @@ resource "aws_route_table_association" "kadikoy_ds_egress_rtba" {
 }
 data "aws_route_tables" "kadikoy-route-tables" {
   vpc_id = aws_vpc.kadikoy.id
-  depends_on = [ 
+  depends_on = [
     aws_route_table.kadikoy_private,
     aws_default_route_table.kadikoy,
     aws_route_table.kadikoy_egress_only
-   ]
+  ]
 }
 
 
@@ -296,7 +303,7 @@ resource "aws_subnet" "kadikoy_vpce" {
   enable_dns64                                   = true
 
   tags = {
-    Name         = format("%s-%s-%s-%s", var.Project, "ds", "vpce", count.index + 1)
+    Name         = format("%s-%s-%s-%s", var.Project.name, "ds", "vpce", count.index + 1)
     IPv4         = "true"
     IPv6         = "true"
     IPv6Egress   = "egress"
@@ -310,7 +317,7 @@ resource "aws_route_table_association" "kadikoy_vpce" {
   subnet_id      = aws_subnet.kadikoy_vpce[count.index].id
   route_table_id = aws_route_table.kadikoy_private.id
 
-  depends_on = [ aws_subnet.kadikoy_vpce ]
+  depends_on = [aws_subnet.kadikoy_vpce]
 }
 
 // Gateway based
@@ -341,9 +348,9 @@ data "aws_subnets" "kadikoy-vpce-subnets" {
     VpceReserved = "true"
   }
 
-  depends_on = [ 
-        aws_subnet.kadikoy_vpce,
-   ]
+  depends_on = [
+    aws_subnet.kadikoy_vpce,
+  ]
 }
 
 // Interface based
@@ -446,7 +453,7 @@ resource "aws_vpc_endpoint" "kadikoy-elasticloadbalancing" {
 #   subnet_id          = aws_subnet.kadikoy_vpce[0].id
 #   security_group_ids = [aws_security_group.kadikoy-internal-only.id]
 #   tags = {
-#     Name = format("%s-%s-%s-%s", var.Project, "ec2", "connect", 1)
+#     Name = format("%s-%s-%s-%s", var.Project.name, "ec2", "connect", 1)
 #   }
 #   depends_on = [
 #     aws_subnet.kadikoy_vpce,

@@ -74,13 +74,40 @@ resource "kubernetes_service" "whoami" {
   }
 }
 
+# To create NLB to expose service to outside of the cluster
+
+# resource "kubernetes_service" "whoami" {
+#   metadata {
+#     name      = "natgw"
+#     namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
+#     annotations = {
+#       "service.beta.kubernetes.io/aws-load-balancer-type" = "internal"
+#       "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type" = "ip"
+#       "service.beta.kubernetes.io/aws-load-balancer-ip-address-type" = "dualstack"
+#     }
+#   }
+#   spec {
+#     ip_families = ["IPv6"]
+#     ip_family_policy = "SingleStack"
+#     selector = {
+#       app = kubernetes_deployment_v1.whoami.metadata[0].labels.app
+#     }
+#     port {
+#       port     = 65535
+#       target_port = 65535
+#       protocol = "TCP"
+#     }
+#     type = "ClusterIP"
+#   }
+# }
+
 resource "kubernetes_ingress_v1" "suadiye" {
   # wait_for_load_balancer = true
   metadata {
     name      = "suadiye"
     namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
     annotations = {
-      "alb.ingress.kubernetes.io/load-balancer-name" = "apps"
+      "alb.ingress.kubernetes.io/load-balancer-name" = kubernetes_namespace_v1.suadiye.metadata[0].name
       "alb.ingress.kubernetes.io/group.name"         = "kadikoy-public"
       "alb.ingress.kubernetes.io/scheme"             = "internet-facing"
       "alb.ingress.kubernetes.io/listen-ports"       = jsonencode([{ "HTTP" : 80 }]) //jsonencode([{ "HTTP" : 80 }, { "HTTPS" : 443 }])
@@ -89,7 +116,6 @@ resource "kubernetes_ingress_v1" "suadiye" {
       "alb.ingress.kubernetes.io/ip-address-type"    = "dualstack"
       "alb.ingress.kubernetes.io/security-groups"    = aws_security_group.kadikoy-alb-public-default.id //aws_default_security_group.kadikoy_default_sg.id
       "alb.ingress.kubernetes.io/subnets"            = join(", ", aws_subnet.kadikoy_ds_public.*.id)
-
     }
   }
 
@@ -119,7 +145,6 @@ resource "kubernetes_ingress_v1" "suadiye" {
 
           path = "/"
         }
-
 
       }
     }
