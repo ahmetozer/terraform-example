@@ -54,7 +54,9 @@ resource "aws_eks_cluster" "kadikoy" {
     aws_vpc_endpoint.kadikoy-ec2,
     aws_vpc_endpoint.kadikoy-ecr-api,
     aws_vpc_endpoint.kadikoy-ecr-dkr,
-    aws_ecr_pull_through_cache_rule.kadikoy-cache,
+    aws_vpc_endpoint.kadikoy-sts,
+    aws_vpc_endpoint.kadikoy-elasticloadbalancing,
+    aws_ecr_pull_through_cache_rule.ecr-cache,
   ]
   kubernetes_network_config {
     ip_family = "ipv6"
@@ -89,9 +91,6 @@ resource "aws_iam_openid_connect_provider" "kadikoy-eks" {
 
 resource "aws_iam_role" "eks-node-group" {
   name = "${var.Project.name}-eks-node-groups"
-  lifecycle {
-    create_before_destroy = true
-  }
 
   assume_role_policy = jsonencode({
     Statement = [{
@@ -135,7 +134,6 @@ resource "aws_iam_policy" "KadikoyAmazonEKS_CNI_IPv6_Policy" {
       }
     ]
   })
-
 }
 
 
@@ -161,32 +159,32 @@ resource "aws_iam_role_policy_attachment" "kadikoy-AmazonEC2ContainerRegistryRea
 }
 
 
-resource "aws_eks_node_group" "kadikoy_eks_public" {
-  cluster_name    = aws_eks_cluster.kadikoy.name
-  node_group_name = "public"
-  node_role_arn   = aws_iam_role.eks-node-group.arn
-  subnet_ids      = aws_subnet.kadikoy_ds_public[*].id
-  capacity_type   = "SPOT"
-  ami_type        = "BOTTLEROCKET_ARM_64"
+# resource "aws_eks_node_group" "kadikoy_eks_public" {
+#   cluster_name    = aws_eks_cluster.kadikoy.name
+#   node_group_name = "public"
+#   node_role_arn   = aws_iam_role.eks-node-group.arn
+#   subnet_ids      = aws_subnet.kadikoy_ds_public[*].id
+#   capacity_type   = "SPOT"
+#   ami_type        = "BOTTLEROCKET_ARM_64"
 
-  scaling_config {
-    desired_size = 1
-    max_size     = 2
-    min_size     = 1
-  }
-  instance_types = ["t4g.nano", "t4g.micro", "t4g.small", "t4g.medium", "t4g.large"]
+#   scaling_config {
+#     desired_size = 1
+#     max_size     = 2
+#     min_size     = 1
+#   }
+#   instance_types = ["t4g.nano", "t4g.micro", "t4g.small", "t4g.medium", "t4g.large"]
 
 
-  update_config {
-    max_unavailable = 1
-  }
+#   update_config {
+#     max_unavailable = 1
+#   }
 
-  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
-  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
-  depends_on = [
-    aws_eks_cluster.kadikoy
-  ]
-}
+#   # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
+#   # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+#   depends_on = [
+#     aws_eks_cluster.kadikoy
+#   ]
+# }
 
 resource "aws_eks_node_group" "kadikoy_eks_private" {
   cluster_name    = aws_eks_cluster.kadikoy.name
@@ -214,17 +212,16 @@ resource "aws_eks_node_group" "kadikoy_eks_private" {
 }
 
 // Container cache 
-resource "aws_ecr_repository" "kadikoy-cache" {
-  name = "kadikoy-cache"
-  lifecycle {
-    create_before_destroy = true
-  }
+
+
+resource "aws_ecr_repository" "ecr-cache" {
+  name = "ecr-cache"
 }
 
-resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
-  repository = aws_ecr_repository.kadikoy-cache.name
+resource "aws_ecr_lifecycle_policy" "ecr-cache" {
+  repository = aws_ecr_repository.ecr-cache.name
 
-  policy     = <<EOF
+  policy = <<EOF
 {
     "rules": [
         {
@@ -243,8 +240,46 @@ resource "aws_ecr_lifecycle_policy" "kadikoy-cache" {
     ]
 }
 EOF
-  depends_on = [aws_ecr_repository.kadikoy-cache]
 }
+resource "aws_ecr_pull_through_cache_rule" "ecr-cache" {
+  ecr_repository_prefix = aws_ecr_repository.ecr-cache.name
+  upstream_registry_url = "public.ecr.aws"
+  depends_on            = [aws_ecr_repository.ecr-cache]
+}
+
+resource "aws_ecr_repository" "k8s-cache" {
+  name = "k8s-cache"
+}
+
+resource "aws_ecr_lifecycle_policy" "k8s-cache" {
+  repository = aws_ecr_repository.k8s-cache.name
+
+  policy = <<EOF
+{
+    "rules": [
+        {
+            "rulePriority": 1,
+            "description": "Expire images older than 7 days",
+            "selection": {
+                "tagStatus": "untagged",
+                "countType": "sinceImagePushed",
+                "countUnit": "days",
+                "countNumber": 7
+            },
+            "action": {
+                "type": "expire"
+            }
+        }
+    ]
+}
+EOF
+}
+resource "aws_ecr_pull_through_cache_rule" "k8s-cache" {
+  ecr_repository_prefix = aws_ecr_repository.k8s-cache.name
+  upstream_registry_url = "registry.k8s.io"
+  depends_on            = [aws_ecr_repository.k8s-cache]
+}
+
 
 resource "aws_iam_role_policy" "kadikoy-ECRPullThroughCache" {
   name = "kadikoy-ECRPullThroughCache"
@@ -261,24 +296,23 @@ resource "aws_iam_role_policy" "kadikoy-ECRPullThroughCache" {
           "ecr:BatchImportUpstreamImage"
         ]
         Effect = "Allow"
-        Resource : "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${aws_ecr_repository.kadikoy-cache.name}/*"
+        Resource : [
+          "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${aws_ecr_repository.ecr-cache.name}/*",
+          "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${aws_ecr_repository.k8s-cache.name}/*",
+        ]
       },
     ]
   })
 }
 
 // Private nodes not able to get images from public registry
-resource "aws_ecr_pull_through_cache_rule" "kadikoy-cache" {
-  ecr_repository_prefix = aws_ecr_repository.kadikoy-cache.name
-  upstream_registry_url = "public.ecr.aws"
-  depends_on            = [aws_ecr_repository.kadikoy-cache]
-}
+
 
 # Default iam role `arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly` does not support pull through cache
 
 
 // Example alb controller image
-// {data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/kadikoy-cache/eks/aws-load-balancer-controller
+// {data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/ecr-cache/eks/aws-load-balancer-controller
 
 
 
@@ -312,6 +346,10 @@ provider "helm" {
     }
   }
 }
+
+# resource "kubernetes_manifest" "metrics-server" {
+#   manifest = file("${path.module}/assets/kubernetes-metric-components.yaml")
+# }
 
 resource "kubernetes_namespace_v1" "suadiye" {
   metadata {

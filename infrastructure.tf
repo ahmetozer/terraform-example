@@ -11,7 +11,7 @@ terraform {
 
 
 variable "Project" {
-  type    = object({
+  type = object({
     name = string
   })
   default = {
@@ -82,7 +82,7 @@ resource "aws_default_route_table" "kadikoy" {
 
 resource "aws_route_table" "kadikoy_egress_only" {
   route {
-    ipv6_cidr_block = "::/0"
+    ipv6_cidr_block        = "::/0"
     egress_only_gateway_id = aws_egress_only_internet_gateway.kadikoy.id
   }
   vpc_id = aws_vpc.kadikoy.id
@@ -191,6 +191,7 @@ resource "aws_subnet" "kadikoy_ds_public" {
     IPv6EgressType           = "direct"
     IPv4EgressType           = "direct"
     "kubernetes.io/role/elb" = "1"
+    "karpenter.sh/discovery" = "kadikoy"
 
   }
 }
@@ -216,6 +217,7 @@ resource "aws_subnet" "kadikoy_ds_private" {
     IPv4Egress                        = "block"
     Type                              = "private"
     "kubernetes.io/role/internal-elb" = "1"
+    "karpenter.sh/discovery"          = "kadikoy"
 
   }
 }

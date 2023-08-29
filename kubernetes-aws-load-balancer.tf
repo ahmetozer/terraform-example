@@ -1,7 +1,6 @@
 resource "aws_iam_policy" "kadikoy_aws_load_balancer_controller" {
   name = "kadikoy_aws_load_balancer_controller"
-
-  policy = file("${path.module}/json/aws_load_balancer_controller_v2_5-4_iam_policy.json")
+  policy = file("${path.module}/assets/aws_load_balancer_controller_v2_5-4_iam_policy.json")
 }
 data "aws_caller_identity" "current" {}
 
@@ -60,7 +59,12 @@ resource "kubernetes_service_account" "kadikoy-aws-load-balancer-controller" {
 resource "aws_security_group" "kadikoy-alb-public-default" {
   description = "Allow HTTP and HTTPS and ICMP for ALB"
   vpc_id      = aws_vpc.kadikoy.id
-
+  lifecycle {
+    ignore_changes = [
+      egress,
+      ingress
+    ]
+  }
   ingress {
     description      = "from public remote http"
     from_port        = 80
@@ -147,13 +151,40 @@ resource "aws_vpc_security_group_egress_rule" "kadikoy-alb-public-default-ipv6-i
 }
 
 resource "aws_vpc_security_group_egress_rule" "kadikoy-alb-public-default-to-eks" {
+  depends_on = [
+    aws_security_group.kadikoy-alb-public-default,
+    aws_eks_cluster.kadikoy
+  ]
+  lifecycle {
+    replace_triggered_by = [
+      aws_security_group.kadikoy-alb-public-default,
+      aws_eks_cluster.kadikoy
+    ]
+  }
   security_group_id            = aws_security_group.kadikoy-alb-public-default.id
-  description                  = "allow from kadikoy-alb-public-default to eks"
-  referenced_security_group_id =  aws_eks_cluster.kadikoy.vpc_config[0].cluster_security_group_id
+  description                  = "allow from kadikoy-alb-public-default to eks any"
+  referenced_security_group_id = aws_eks_cluster.kadikoy.vpc_config[0].cluster_security_group_id
   ip_protocol                  = -1
-  from_port                    = -1
-  to_port                      = -1
 }
+
+resource "aws_vpc_security_group_ingress_rule" "eks-to-kadikoy-alb-public-default" {
+  depends_on = [
+    aws_security_group.kadikoy-alb-public-default,
+    aws_eks_cluster.kadikoy
+  ]
+  lifecycle {
+    replace_triggered_by = [
+      aws_security_group.kadikoy-alb-public-default,
+      aws_eks_cluster.kadikoy
+    ]
+  }
+  security_group_id            = aws_security_group.kadikoy-alb-public-default.id
+  description                  = "allow from eks to kadikoy-alb-public-default any"
+  referenced_security_group_id = aws_eks_cluster.kadikoy.vpc_config[0].cluster_security_group_id
+  ip_protocol                  = -1
+}
+
+
 resource "helm_release" "kadikoy-aws-load-balancer-controller" {
   name = "aws-load-balancer-controller"
 
@@ -177,7 +208,7 @@ resource "helm_release" "kadikoy-aws-load-balancer-controller" {
   // To able to download at private network groups (#bk5Iutho2)
   set {
     name  = "image.repository"
-    value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/kadikoy-cache/eks/aws-load-balancer-controller"
+    value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/ecr-cache/eks/aws-load-balancer-controller"
   }
 
   set {
@@ -199,6 +230,7 @@ resource "helm_release" "kadikoy-aws-load-balancer-controller" {
   depends_on = [
     kubernetes_service_account.kadikoy-aws-load-balancer-controller,
     aws_iam_role_policy.kadikoy-ECRPullThroughCache,
-    aws_eks_node_group.kadikoy_eks_private
+    aws_eks_node_group.kadikoy_eks_private,
+    helm_release.kadikoy-karpenter
   ]
 }

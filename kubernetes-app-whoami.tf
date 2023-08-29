@@ -72,6 +72,10 @@ resource "kubernetes_service" "whoami" {
 
     type = "ClusterIP"
   }
+
+  depends_on = [
+    helm_release.kadikoy-aws-load-balancer-controller # To prevent
+  ]
 }
 
 # To create NLB to expose service to outside of the cluster
@@ -101,61 +105,61 @@ resource "kubernetes_service" "whoami" {
 #   }
 # }
 
-resource "kubernetes_ingress_v1" "suadiye" {
-  # wait_for_load_balancer = true
-  metadata {
-    name      = "suadiye"
-    namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
-    annotations = {
-      "alb.ingress.kubernetes.io/load-balancer-name" = kubernetes_namespace_v1.suadiye.metadata[0].name
-      "alb.ingress.kubernetes.io/group.name"         = "kadikoy-public"
-      "alb.ingress.kubernetes.io/scheme"             = "internet-facing"
-      "alb.ingress.kubernetes.io/listen-ports"       = jsonencode([{ "HTTP" : 80 }]) //jsonencode([{ "HTTP" : 80 }, { "HTTPS" : 443 }])
-      "alb.ingress.kubernetes.io/target-type"        = "ip"
-      "alb.ingress.kubernetes.io/success-codes"      = "200-499"
-      "alb.ingress.kubernetes.io/ip-address-type"    = "dualstack"
-      "alb.ingress.kubernetes.io/security-groups"    = aws_security_group.kadikoy-alb-public-default.id //aws_default_security_group.kadikoy_default_sg.id
-      "alb.ingress.kubernetes.io/subnets"            = join(", ", aws_subnet.kadikoy_ds_public.*.id)
-    }
-  }
+# resource "kubernetes_ingress_v1" "suadiye" {
+#   # wait_for_load_balancer = true
+#   metadata {
+#     name      = "suadiye"
+#     namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
+#     annotations = {
+#       "alb.ingress.kubernetes.io/load-balancer-name" = kubernetes_namespace_v1.suadiye.metadata[0].name
+#       "alb.ingress.kubernetes.io/group.name"         = "kadikoy-public"
+#       "alb.ingress.kubernetes.io/scheme"             = "internet-facing"
+#       "alb.ingress.kubernetes.io/listen-ports"       = jsonencode([{ "HTTP" : 80 }]) //jsonencode([{ "HTTP" : 80 }, { "HTTPS" : 443 }])
+#       "alb.ingress.kubernetes.io/target-type"        = "ip"
+#       "alb.ingress.kubernetes.io/success-codes"      = "200-499"
+#       "alb.ingress.kubernetes.io/ip-address-type"    = "dualstack"
+#       "alb.ingress.kubernetes.io/security-groups"    = aws_security_group.kadikoy-alb-public-default.id //aws_default_security_group.kadikoy_default_sg.id
+#       "alb.ingress.kubernetes.io/subnets"            = join(", ", aws_subnet.kadikoy_ds_public.*.id)
+#     }
+#   }
 
-  spec {
-    ingress_class_name = "alb"
-    default_backend {
-      service {
-        name = "whoami"
-        port {
-          number = 80
-        }
-      }
-    }
+#   spec {
+#     ingress_class_name = "alb"
+#     default_backend {
+#       service {
+#         name = "whoami"
+#         port {
+#           number = 80
+#         }
+#       }
+#     }
 
-    rule {
-      http {
-        path {
-          path_type = "Prefix"
-          backend {
-            service {
-              name = "whoami"
-              port {
-                number = 80
-              }
-            }
-          }
+#     rule {
+#       http {
+#         path {
+#           path_type = "Prefix"
+#           backend {
+#             service {
+#               name = "whoami"
+#               port {
+#                 number = 80
+#               }
+#             }
+#           }
 
-          path = "/"
-        }
+#           path = "/"
+#         }
 
-      }
-    }
+#       }
+#     }
 
-    # tls {
-    #   secret_name = "tls-secret"
-    # }
-  }
+#     # tls {
+#     #   secret_name = "tls-secret"
+#     # }
+#   }
 
-  depends_on = [
-    helm_release.kadikoy-aws-load-balancer-controller # To prevent
-  ]
+#   depends_on = [
+#     helm_release.kadikoy-aws-load-balancer-controller # To prevent
+#   ]
 
-}
+# }
