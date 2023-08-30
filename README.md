@@ -39,6 +39,10 @@
         - Allow all outgoing traffic to EKS cluster
         - Permit this sg at EKS sg to pods for  tcp/80, tcp/8080 and icmp
         - Permit EKS sg to ALB for ICMP (prevent connection hang)
+  - Karpenter Auto Scaler
+    - Provisioner and Node Group examples
+    - Isolated subnet configuration
+  - Metric server
 
 - Custom ecr pull through cache and vpce enabled to use private only network.
 - ALB controller installed with helm, changes made to supports to work on private nodes (no internet access)

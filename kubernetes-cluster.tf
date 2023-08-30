@@ -362,3 +362,29 @@ resource "kubernetes_namespace_v1" "cadde" {
     name = "cadde"
   }
 }
+
+
+resource "helm_release" "metric-server" {
+  name = "metric-server"
+
+  repository = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart      = "metrics-server"
+  namespace  = "kube-system"
+
+
+
+  // To able to download at private network groups (#bk5Iutho2)
+  set {
+    name  = "image.repository"
+    value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/k8s-cache/metrics-server/metrics-server"
+  }
+
+
+  depends_on = [
+    kubernetes_service_account.kadikoy-aws-load-balancer-controller,
+    aws_iam_role_policy.kadikoy-ECRPullThroughCache,
+    aws_eks_node_group.kadikoy_eks_private,
+    helm_release.kadikoy-karpenter,
+    aws_ecr_pull_through_cache_rule.k8s-cache,
+  ]
+}
