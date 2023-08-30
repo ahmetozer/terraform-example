@@ -199,7 +199,7 @@ resource "aws_eks_node_group" "kadikoy_eks_private" {
     max_size     = 3
     min_size     = 1
   }
-  instance_types = ["t4g.nano", "t4g.micro", "t4g.small", "t4g.medium", "t4g.large"]
+  instance_types = ["t4g.nano", "t4g.micro"]
 
   update_config {
     max_unavailable = 1

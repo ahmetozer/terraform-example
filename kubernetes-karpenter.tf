@@ -194,48 +194,211 @@ resource "helm_release" "kadikoy-karpenter" {
     value = aws_iam_role.KarpenterControllerRole.arn
   }
 
+  set {
+    name  = "settings.aws.clusterEndpoint"
+    value = aws_eks_cluster.kadikoy.endpoint
+  }
+
+  set {
+    name  = "settings.aws.clusterName"
+    value = aws_eks_cluster.kadikoy.name
+  }
+
+  set {
+    name  = "settings.aws.isolatedVPC"
+    value = "true"
+  }
+
+
   // To able to download at private network groups (#bk5Iutho2)
   set {
     name  = "controller.image.repository"
     value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/ecr-cache/karpenter/controller"
   }
 
-  set {
-    name  = "controller.resources.requests.cpu"
-    value = "1"
+  # set {
+  #   name  = "controller.resources.requests.cpu"
+  #   value = "1"
+  # }
+
+  # set {
+  #   name  = "controller.resources.requests.memory"
+  #   value = "1Gi"
+  # }
+
+  # set {
+  #   name  = "controller.resources.limits.cpu"
+  #   value = "1"
+  # }
+
+  # set {
+  #   name  = "controller.resources.limits.memory"
+  #   value = "1Gi"
+  # }
+
+  depends_on = [ 
+    aws_vpc_endpoint.kadikoy-ecr-dkr,
+    aws_vpc_endpoint.kadikoy-ecr-api,
+    aws_vpc_endpoint.kadikoy-ec2,
+    aws_vpc_endpoint.kadikoy-sts,
+    aws_vpc_endpoint.kadikoy-ssm
+   ]
+
+  values = [
+    jsonencode({
+      "affinity" = {
+        "nodeAffinity" = {
+          "requiredDuringSchedulingIgnoredDuringExecution" = {
+            "nodeSelectorTerms" = [
+              {
+                "matchExpressions" = [
+                  {
+                    "key"      = "eks.amazonaws.com/nodegroup"
+                    "operator" = "In"
+                    "values" = [
+                      aws_eks_node_group.kadikoy_eks_private.node_group_name
+                    ]
+                  },
+                ]
+              },
+            ]
+          }
+        }
+        "podAntiAffinity" = {
+          "requiredDuringSchedulingIgnoredDuringExecution" = [
+            {
+              "topologyKey" = "kubernetes.io/hostname"
+            },
+          ]
+        }
+      }
+    })
+  ]
+}
+
+resource "kubernetes_manifest" "karpenter-arm64-provisioner" {
+  manifest = yamldecode(<<-EOF
+apiVersion: karpenter.sh/v1alpha5
+kind: Provisioner
+metadata:
+  name: kadikoy
+spec:
+  consolidation:
+    enabled: true
+  limits:
+    resources:
+      cpu: 1k
+  providerRef:
+    name: default
+  requirements:
+  - key: karpenter.sh/capacity-type
+    operator: In
+    values:
+    - spot
+  - key: kubernetes.io/arch
+    operator: In
+    values:
+    - arm64
+  - key: kubernetes.io/os
+    operator: In
+    values:
+    - linux
+  - key: karpenter.k8s.aws/instance-category
+    operator: In
+    values:
+    - t
+  - key: karpenter.k8s.aws/instance-generation
+    operator: Gt
+    values:
+    - "2"
+    EOF
+  )
+}
+
+resource "aws_security_group" "karpenter-egress" {
+  vpc_id = aws_vpc.kadikoy.id
+
+  ingress {
+    description      = "from VPC"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = [aws_vpc.kadikoy.cidr_block]
+    ipv6_cidr_blocks = [aws_vpc.kadikoy.ipv6_cidr_block]
   }
 
-  set {
-    name  = "controller.resources.requests.memory"
-    value = "1Mi"
+  egress {
+    description      = "to VPC"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = [aws_vpc.kadikoy.cidr_block]
+    ipv6_cidr_blocks = [aws_vpc.kadikoy.ipv6_cidr_block]
   }
 
-  set {
-    name  = "controller.resources.limits.cpu"
-    value = "1"
+  egress {
+    description      = "to any"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
   }
 
-  set {
-    name  = "controller.resources.limits.memory"
-    value = "1Gi"
-  }
-#   set {
-#     name = "affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms"
-#     value = jsonencode({
-#       "nodeSelectorTerms" : [
-#         {
-#           "matchExpressions" : [
-#             {
-#               "key" : "eks.amazonaws.com/nodegroup",
-#               "operator" : "In",
-#               "values" : [
-#                 "private"
-#               ]
-#             }
-#           ]
-#         }
-#       ]
-#     })
-#   }
 
+  tags = {
+    Name = "karpenter-egress"
+    NetType= "ds-egress"
+    Kartpenter="ds-egress"
+  }
+}
+
+
+resource "aws_vpc_security_group_ingress_rule" "karpenter-egress-to-eks" {
+  depends_on = [
+    aws_security_group.karpenter-egress,
+    aws_eks_cluster.kadikoy
+  ]
+  lifecycle {
+    replace_triggered_by = [
+      aws_security_group.karpenter-egress,
+      aws_eks_cluster.kadikoy
+    ]
+  }
+  security_group_id            = aws_eks_cluster.kadikoy.vpc_config[0].cluster_security_group_id
+  description                  = "allow karpenter-egress to eks"
+  referenced_security_group_id = aws_security_group.karpenter-egress.id
+  ip_protocol                  = -1
+}
+
+resource "kubernetes_manifest" "karpenter-node-public" {
+  manifest = yamldecode(<<-EOF
+apiVersion: karpenter.k8s.aws/v1alpha1
+kind: AWSNodeTemplate
+metadata:
+  name: default
+spec:
+  amiFamily: Bottlerocket
+  subnetSelector:
+    NetType: ds-public
+  securityGroupSelector:
+    Kartpenter: ds-egress
+    EOF
+  )
+}
+
+resource "kubernetes_manifest" "karpenter-node-private" {
+  manifest = yamldecode(<<-EOF
+apiVersion: karpenter.k8s.aws/v1alpha1
+kind: AWSNodeTemplate
+metadata:
+  name: private
+spec:
+  amiFamily: Bottlerocket
+  subnetSelector:
+    NetType: ds-private
+  securityGroupSelector:
+    Kartpenter: ds-private
+    EOF
+  )
 }

@@ -186,12 +186,13 @@ resource "aws_subnet" "kadikoy_ds_public" {
   enable_dns64                                   = false
   tags = {
     Name                     = format("%s-%s-%s-%s", var.Project.name, "ds", "public", count.index + 1)
-    IPv4                     = "false"
+    IPv4                     = "true"
     IPv6                     = "true"
     IPv6EgressType           = "direct"
     IPv4EgressType           = "direct"
     "kubernetes.io/role/elb" = "1"
     "karpenter.sh/discovery" = "kadikoy"
+    NetType ="ds-public"
 
   }
 }
@@ -287,6 +288,7 @@ resource "aws_security_group" "kadikoy-internal-only" {
 
   tags = {
     Name = "kadikoy-internal-only"
+    NetType= "ds-private"
   }
 }
 
@@ -450,6 +452,25 @@ resource "aws_vpc_endpoint" "kadikoy-elasticloadbalancing" {
   }
 }
 
+resource "aws_vpc_endpoint" "kadikoy-ssm" {
+  vpc_id             = aws_vpc.kadikoy.id
+  service_name       = "com.amazonaws.${data.aws_region.current.name}.ssm"
+  vpc_endpoint_type  = "Interface"
+  security_group_ids = [aws_security_group.kadikoy-internal-only.id]
+
+  subnet_ids          = data.aws_subnets.kadikoy-vpce-subnets.ids
+  private_dns_enabled = true
+
+  depends_on = [
+    data.aws_subnets.kadikoy-vpce-subnets,
+    aws_subnet.kadikoy_vpce,
+    aws_security_group.kadikoy-internal-only
+  ]
+  tags = {
+    Name = "kadikoy-ssm"
+  }
+}
+
 
 # resource "aws_ec2_instance_connect_endpoint" "kadikoy" {
 #   subnet_id          = aws_subnet.kadikoy_vpce[0].id
@@ -484,7 +505,18 @@ resource "aws_default_security_group" "kadikoy_default_sg" {
     ipv6_cidr_blocks = [aws_vpc.kadikoy.ipv6_cidr_block]
   }
 
+  egress {
+    description      = "to any"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+  }
+
+
   tags = {
     Name = "kadikoy-sg-default"
+    NetType= "ds-egress"
   }
 }

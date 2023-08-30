@@ -1,41 +1,37 @@
-resource "kubernetes_deployment_v1" "whoami" {
+resource "kubernetes_deployment_v1" "nginx" {
   metadata {
-    name = "whomi"
+    name = "nginx"
     labels = {
-      app = "whoami"
+      app = "nginx"
     }
     namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
   }
 
   spec {
-    replicas = 3
+    replicas = 1
 
     selector {
       match_labels = {
-        app = "whoami"
+        app = "nginx"
       }
     }
 
     template {
       metadata {
         labels = {
-          app = "whoami"
+          app = "nginx"
         }
       }
 
       spec {
         container {
-          image = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/whoami"
-          name  = "whoami"
+          image = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/ecr-cache/nginx/nginx:alpine-slim"
+          name  = "nginx"
 
           resources {
-            limits = {
-              cpu    = "0.5"
-              memory = "512Mi"
-            }
             requests = {
-              cpu    = "250m"
-              memory = "50Mi"
+              cpu    = "20m"
+              memory = "512Mi"
             }
           }
 
@@ -55,14 +51,14 @@ resource "kubernetes_deployment_v1" "whoami" {
 }
 
 
-resource "kubernetes_service" "whoami" {
+resource "kubernetes_service" "nginx" {
   metadata {
-    name      = "whoami"
+    name      = "nginx"
     namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
   }
   spec {
     selector = {
-      app = kubernetes_deployment_v1.whoami.metadata[0].labels.app
+      app = kubernetes_deployment_v1.nginx.metadata[0].labels.app
     }
     session_affinity = "ClientIP"
     port {
@@ -78,11 +74,11 @@ resource "kubernetes_service" "whoami" {
   ]
 }
 
-# To create NLB to expose service to outside of the cluster
+## To create NLB to expose service to outside of the cluster
 
-# resource "kubernetes_service" "whoami" {
+# resource "kubernetes_service" "nginx" {
 #   metadata {
-#     name      = "natgw"
+#     name      = "nginx"
 #     namespace = kubernetes_namespace_v1.suadiye.metadata[0].name
 #     annotations = {
 #       "service.beta.kubernetes.io/aws-load-balancer-type" = "internal"
@@ -94,7 +90,7 @@ resource "kubernetes_service" "whoami" {
 #     ip_families = ["IPv6"]
 #     ip_family_policy = "SingleStack"
 #     selector = {
-#       app = kubernetes_deployment_v1.whoami.metadata[0].labels.app
+#       app = kubernetes_deployment_v1.nginx.metadata[0].labels.app
 #     }
 #     port {
 #       port     = 65535
@@ -104,6 +100,8 @@ resource "kubernetes_service" "whoami" {
 #     type = "ClusterIP"
 #   }
 # }
+
+## Expose service with ingress
 
 # resource "kubernetes_ingress_v1" "suadiye" {
 #   # wait_for_load_balancer = true
@@ -127,7 +125,7 @@ resource "kubernetes_service" "whoami" {
 #     ingress_class_name = "alb"
 #     default_backend {
 #       service {
-#         name = "whoami"
+#         name = "nginx"
 #         port {
 #           number = 80
 #         }
@@ -140,7 +138,7 @@ resource "kubernetes_service" "whoami" {
 #           path_type = "Prefix"
 #           backend {
 #             service {
-#               name = "whoami"
+#               name = "nginx"
 #               port {
 #                 number = 80
 #               }
